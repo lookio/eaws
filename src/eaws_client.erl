@@ -75,7 +75,7 @@ handle_cast({send_formatted_email, Ses_Email}, State) ->
                            {"Message.Subject.Data",   Ses_Email#ses_email.subject},
                            {"Message.Body.Text.Data", Ses_Email#ses_email.text_body},
                            {"Message.Body.Text.Html", Ses_Email#ses_email.html_body}],
-                         lists:foldl(fun(To, {Count, B}) -> B ++ [{"Destination.ToAddresses.member." ++ integer_to_list(Count), To}] end, {1, []}, Ses_Email#ses_email.to)),
+                         lists:foldl(fun(To, B) -> B ++ [{"Destination.ToAddresses.member." ++ integer_to_list(length(B) + 1), To}] end, [], Ses_Email#ses_email.to)),
 
     % Remove any undefined params and build the body
     Body = string:strip(lists:foldl(fun({K, V}, Acc) -> Acc ++ "&" ++ K ++ "=" ++ escape_uri(V) end, "", lists:filter(fun({_, undefined}) -> false; (_) -> true end, Params)), left, $&),
