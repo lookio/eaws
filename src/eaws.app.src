@@ -1,6 +1,6 @@
 {application, eaws, [
 	{description,  "Erlang Amazon Web Services Library"},
-	{vsn,          "0.1.0"},
+	{vsn,          "0.1.1"},
 	{registered,   [eaws_sup]},
 	{mod,          {eaws_app, []}},
 	{applications, [kernel, stdlib]},
