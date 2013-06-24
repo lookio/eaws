@@ -5,7 +5,9 @@
 
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 -export([connect/0,
-         send_formatted_email/1]).
+         connect/2,
+         send_formatted_email/1,
+         send_raw_email/1]).
 
 -record(state, {access_key_id, secret_access_key}).
 
@@ -40,7 +42,9 @@ connect() ->
                             undefined -> "MISSING_SECRET_ACCESS_KEY";
                             {ok, V2}  -> V2
                         end,
+    connect(Access_Key_Id, Secret_Access_Key).
 
+connect(Access_Key_Id, Secret_Access_Key) -> 
     gen_server:start_link({local, ?MODULE}, ?MODULE, 
                         [{access_key_id,     Access_Key_Id}, 
                          {secret_access_key, Secret_Access_Key}], []).
@@ -53,6 +57,16 @@ send_formatted_email(Params) ->
                            html_body = proplists:get_value(html_body, Params)},
 
     gen_server:cast(?MODULE, {send_formatted_email, Ses_Email}).
+
+send_raw_email(Params) ->
+    Ses_Email = #ses_email{from      = proplists:get_value(from_address, Params),
+                           to        = proplists:get_value(to_addresses, Params),
+                           subject   = proplists:get_value(subject, Params),
+                           text_body = proplists:get_value(text_body, Params),
+                           html_body = proplists:get_value(html_body, Params),
+                           file_names = proplists:get_value(file_names, Params, [])},
+
+    gen_server:cast(?MODULE, {send_raw_email, Ses_Email}).
 
 init(Args) ->
     inets:start(),
@@ -91,9 +105,84 @@ handle_cast({send_formatted_email, Ses_Email}, State) ->
     end,
 
     {noreply, State};
+
+handle_cast({send_raw_email, Ses_Email}, State) ->
+    {Date, Signature} = calculate_signature(State#state.access_key_id, State#state.secret_access_key),
+    Host = "email.us-east-1.amazonaws.com",
+    Part_Separator = "_003_97DCB304C5294779BEBCFC8357FCC4D2",
+
+    Message_Text = string:join([
+      "Content-Type: text/plain; charset=\"us-ascii\"",
+      "Content-Transfer-Encoding: quoted-printable",
+      "",
+      ensure_list(Ses_Email#ses_email.text_body),
+      "",
+      "--" ++ Part_Separator], "\n"),
+
+    %% TODO: Get create and modification dates from file
+    %% TODO: Map extensions to Content-Type as allowed by amazon (http://docs.aws.amazon.com/ses/latest/DeveloperGuide/mime-types.html)
+    %% TODO: Allow attaching from memory buffers, not just files
+    %% TODO: Generate unique message IDs
+    All_Parts = lists:foldl(fun(File_Name, Cur_Parts) ->
+        Display_File_Name = ensure_list(filename:basename(File_Name)),
+        File_Size = filelib:file_size(File_Name),
+        {ok, Bin_Content} = file:read_file(File_Name),
+        Part = string:join([
+            "Content-Type: application/octet-stream; name=\"" ++ Display_File_Name ++ "\"",
+            "Content-Description: " ++ Display_File_Name,
+            "Content-Disposition: attachment; " ++
+             "filename=\"" ++ Display_File_Name ++ "\"; " ++
+             "size=" ++ ensure_list(File_Size) ++ "; " ++
+             "creation-date=\"" ++ Date ++ "\"; " ++
+             "modification-date=\"" ++ Date ++ "\"",
+            "Content-Transfer-Encoding: base64",
+            "",
+            base64:encode_to_string(Bin_Content),
+            "",
+            "--" ++ Part_Separator], "\n"),
+        [Part] ++ Cur_Parts end, [Message_Text], Ses_Email#ses_email.file_names),
+
+    lists:foreach(fun(To) ->
+      Message_Header = string:join([
+        "From: " ++ ensure_list(Ses_Email#ses_email.from),
+        "To: " ++ ensure_list(To),
+        "Date: " ++ Date,
+        "Subject: " ++ ensure_list(Ses_Email#ses_email.subject),
+        "Message-ID: " ++ "<97DCB304-C529-4779-BEBC-FC8357FCC4D2@amazon.com>",
+        "Accept-Language: en-US",
+        "Content-Language: en-US",
+        "Content-Type: multipart/mixed; boundary=\"" ++ Part_Separator ++ "\"",
+        "MIME-Version: 1.0",
+        "",
+        "--" ++ Part_Separator], "\n"),
+
+      Message = Message_Header ++ "\n" ++
+                string:join(All_Parts, "\n"),
+
+      Params = [{"Action",                 "SendRawEmail"},
+                {"RawMessage.Data",        base64:encode(Message)}],
+
+      Body = mochiweb_util:urlencode(Params),
+
+      Headers = [{"X-Amzn-Authorization", Signature},
+                 {"Content-Type", "application/x-www-form-urlencoded"},
+                 {"Content-Length", length(Body)},
+                 {"Date", Date},
+                 {"Host", Host}],
+
+      Result = httpc:request(post, {"https://" ++ Host ++ "/", Headers, "application/x-www-form-urlencoded", Body}, [], []),
+      io:format("Result = ~p\n", [Result]) end,
+                  Ses_Email#ses_email.to),
+
+    {noreply, State};
+
 handle_cast(_Msg, State) -> {noreply, State}.
 
 handle_info(_Msg, State) -> {noreply, State}.
 terminate(_Reason, _State) -> ok.
 code_change(_OldVsn, State, _Extra) -> {ok, State}.
 
+ensure_list(Val) when is_binary(Val) -> binary_to_list(Val);
+ensure_list(Val) when is_list(Val) -> Val;
+ensure_list(Val) when is_integer(Val) -> integer_to_list(Val);
+ensure_list(Val) -> binary_to_list(term_to_binary(Val)).
