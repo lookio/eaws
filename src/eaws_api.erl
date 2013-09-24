@@ -81,8 +81,8 @@ associate_address(Instance_Id, Public_Ip) ->
     {xml, Xml_Data} ->
       {Xml, _} = xmerl_scan:string(to_list(Xml_Data)),
       case content_to_text(xmerl_xs:select("return", Xml)) of
-        "true" -> true;
-        _      -> error
+        <<"true">> -> true;
+        _          -> error
       end;
     _ -> error
   end.
@@ -109,8 +109,8 @@ xml_list_to_list(Xml_List) ->
 
 content_to_text([#xmlElement{} = Element]) ->
   case Element#xmlElement.content of
-    [#xmlText{} = Xml | _] -> Xml#xmlText.value;
-    _ -> ""
+    [#xmlText{} = Xml | _] -> to_binary(Xml#xmlText.value);
+    _ -> <<"">>
   end.
 
 
@@ -119,3 +119,10 @@ to_list(Object) when is_atom(Object) -> atom_to_list(Object);
 to_list(Object) when is_list(Object) -> Object;
 to_list(Object) when is_pid(Object) -> pid_to_list(Object);
 to_list(Object) when is_number(Object) -> lists:flatten(io_lib:format("~p", [Object])).
+
+
+to_binary(Object) when is_binary(Object) -> Object;
+to_binary(Object) when is_list(Object) -> list_to_binary(Object);
+to_binary(Object) when is_atom(Object) -> list_to_binary(atom_to_list(Object));
+to_binary(Object) when is_number(Object) -> list_to_binary(to_list(Object)).
+
