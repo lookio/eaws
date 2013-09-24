@@ -41,10 +41,18 @@ params_from_list(Params) ->
 
 
 call_api(get, Path, Params) ->
+  Access_Key_Id     = case application:get_env(eaws, access_key_id) of
+                            undefined -> "MISSING_ACCESS_KEY";
+                            {ok, V1}  -> V1
+                        end,
+  Secret_Access_Key = case application:get_env(eaws, secret_access_key) of
+                            undefined -> "MISSING_SECRET_ACCESS_KEY";
+                            {ok, V2}  -> V2
+                        end,
   Proto = "https",
   Host = "ec2.amazonaws.com",
-  {Param_String, Signature} = signature(application:get_env(eaws, access_key_id),
-            application:get_env(eaws, secret_access_key),
+  {Param_String, Signature} = signature(Access_Key_Id,
+            Secret_Access_Key,
             get,
             Host,
             Path,
