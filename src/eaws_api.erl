@@ -111,7 +111,9 @@ content_to_text([#xmlElement{} = Element]) ->
   case Element#xmlElement.content of
     [#xmlText{} = Xml | _] -> to_binary(Xml#xmlText.value);
     _ -> <<"">>
-  end.
+  end;
+
+content_to_text([]) -> <<"">>.
 
 
 to_list(Object) when is_binary(Object) -> binary_to_list(Object);
